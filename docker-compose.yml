@@ -1,0 +1,55 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: latex
+      POSTGRES_PASSWORD: latex
+      POSTGRES_DB: latex_editor
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U latex -d latex_editor"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://latex:latex@db:5432/latex_editor
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+  # Primary browser entry point on :8080; static bundle from the image,
+  # /api and /health reverse-proxied to the backend container.
+  frontend:
+    build: ./frontend
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+
+  # One-off test runner:
+  #   docker compose run --rm tests
+  # Kernel tests are hermetic (in-memory SQLite) so they also run without
+  # the database; this service simply waits for postgres for convenience.
+  tests:
+    build: ./backend
+    command: >
+      sh -c "python -m pytest app/tests -v"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://latex:latex@db:5432/latex_editor
+      TEST_DATABASE_URL: sqlite+aiosqlite:///:memory:
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles:
+      - test
+
+volumes:
+  pgdata:
